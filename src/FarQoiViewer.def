@@ -1,0 +1,9 @@
+LIBRARY FarQoiViewer
+
+EXPORTS
+    GetGlobalInfoW
+    SetStartupInfoW
+    GetPluginInfoW
+    OpenW
+    ProcessConsoleInputW
+    ExitFARW
