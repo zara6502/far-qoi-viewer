@@ -1,45 +1,45 @@
 # FarQoiViewer
 
-[Русская версия](readme-rus.md)
+[English version](README.md)
 
-A Far Manager 3.x plugin that opens `.qoi` images in a native Windows window.
+Плагин Far Manager 3.x для просмотра изображений `.qoi` в отдельном окне Windows.
 
-The QOI stream is decoded directly. No PNG, WIC, or GDI+ image codecs are used.
+Поток QOI декодируется напрямую. Кодеки PNG, WIC и GDI+ не используются.
 
-## Features
+## Возможности
 
-* `F3` on a `.qoi` file opens the viewer
-* Non-QOI files are left to Far Manager
-* RGB and RGBA QOI supported
-* Aspect ratio preserved
-* Fit-to-window and 1:1 modes
-* Zoom and pan
-* RGBA composited over a checkerboard background
-* Independent window with its own message loop
+* `F3` на файле `.qoi` открывает просмотрщик
+* Остальные файлы обрабатывает Far Manager как обычно
+* Поддержка RGB и RGBA QOI
+* Сохранение пропорций
+* Режимы «по размеру окна» и 1:1
+* Масштаб и панорамирование
+* RGBA на фоне шашечки
+* Отдельное окно со своим циклом сообщений
 
-## Controls
+## Управление
 
-| Key | Action |
-|-----|--------|
-| `0` | Fit to window |
+| Клавиша | Действие |
+|---------|----------|
+| `0` | Вписать в окно |
 | `1` | 100% / 1:1 |
-| `+` / `-` | Zoom in / out |
-| Mouse wheel | Zoom |
-| Arrow keys | Pan |
-| `Home` | Center image |
-| `Space` / LMB | Toggle fit ↔ zoom |
-| `Esc` | Close |
+| `+` / `-` | Увеличить / уменьшить |
+| Колёсико мыши | Масштаб |
+| Стрелки | Сдвиг |
+| `Home` | Центрировать |
+| `Space` / ЛКМ | Переключение fit ↔ zoom |
+| `Esc` | Закрыть |
 
-Command line (Far prefix):
+Командная строка Far (префикс):
 
 ```
 qoi C:\path\to\image.qoi
 qoi "C:\path with spaces\image.qoi"
 ```
 
-## Build
+## Сборка
 
-The plugin uses `far/plugin.hpp` from the Far Manager source tree (not a bundled copy).
+Плагин берёт `far/plugin.hpp` из исходников Far Manager (копия в репозитории не поставляется).
 
 ```
 git clone --depth 1 https://github.com/FarGroup/FarManager.git
@@ -68,18 +68,18 @@ cmake --build build -j
 
 DLL: `build/FarQoiViewer.dll`
 
-## Install
+## Установка
 
-Copy the DLL to:
+Скопировать DLL в:
 
 ```
 %FARHOME%\Plugins\FarQoiViewer\FarQoiViewer.dll
 ```
 
-Restart Far Manager.
+Перезапустить Far Manager.
 
-## Notes
+## Замечания
 
-* Uses `ProcessConsoleInputW` to intercept `F3` only for `.qoi` files
-* Not an archive / virtual-panel plugin — it is a viewer for the current selection
-* QOI format: [phoboslab/qoi](https://github.com/phoboslab/qoi)
+* `ProcessConsoleInputW` перехватывает `F3` только для файлов `.qoi`
+* Это не archive/virtual-panel плагин — только просмотр текущего файла
+* Формат QOI: [phoboslab/qoi](https://github.com/phoboslab/qoi)
