@@ -85,6 +85,7 @@ struct ViewerState {
   std::wstring filename;
 
   HWND hwnd = nullptr;
+  HANDLE loadThread = nullptr;
 
   double zoom = 1.0;
   double panX = 0.0;
@@ -466,7 +467,7 @@ static void start_image_load(ViewerState &state) {
     return;
   }
 
-  CloseHandle(thread);
+  state.loadThread = thread;
 }
 
 static void checker(HDC dc, const RECT &r) {
@@ -1072,6 +1073,13 @@ static void finish_viewer_thread(ViewerState &state, HWND hwnd,
   // DestroyWindow отправляет WM_DESTROY.
   if (hwnd && IsWindow(hwnd))
     DestroyWindow(hwnd);
+  
+  // Дожидаемся фоновой загрузки до завершения потока плагина.
+  if (state.loadThread) {
+    WaitForSingleObject(state.loadThread, INFINITE);
+    CloseHandle(state.loadThread);
+    state.loadThread = nullptr;
+  }
 
   release_gdi_resources(state);
 
