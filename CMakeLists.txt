@@ -1,21 +1,32 @@
 cmake_minimum_required(VERSION 3.20)
+
 project(FarQoiViewer LANGUAGES CXX)
 
-set(FAR_SOURCE_DIR "" CACHE PATH "Path to Far Manager source tree (must contain far/plugin.hpp)")
+set(FAR_SOURCE_DIR "" CACHE PATH
+    "Path to Far Manager source tree containing far/plugin.hpp")
 
 if(NOT FAR_SOURCE_DIR)
     message(FATAL_ERROR
-        "Set FAR_SOURCE_DIR, e.g. -DFAR_SOURCE_DIR=C:/far/FarManager")
+        "Set FAR_SOURCE_DIR, e.g. -DFAR_SOURCE_DIR=C:/far")
 endif()
 
 if(NOT EXISTS "${FAR_SOURCE_DIR}/far/plugin.hpp")
-    message(FATAL_ERROR "Cannot find ${FAR_SOURCE_DIR}/far/plugin.hpp")
+    message(FATAL_ERROR
+        "Cannot find ${FAR_SOURCE_DIR}/far/plugin.hpp")
 endif()
+
+if(NOT MINGW)
+    message(FATAL_ERROR
+        "This project is configured for MinGW (MSYS2 UCRT64)")
+endif()
+
+find_package(Threads REQUIRED)
 
 add_library(FarQoiViewer SHARED
     src/plugin.cpp
     src/qoi.cpp
     src/qoi.h
+    src/FarQoiViewer.def
 )
 
 target_include_directories(FarQoiViewer PRIVATE
@@ -25,6 +36,13 @@ target_include_directories(FarQoiViewer PRIVATE
 
 target_compile_features(FarQoiViewer PRIVATE cxx_std_17)
 
+set_target_properties(FarQoiViewer PROPERTIES
+    CXX_EXTENSIONS OFF
+    OUTPUT_NAME "FarQoiViewer"
+    PREFIX ""
+    SUFFIX ".dll"
+)
+
 target_compile_definitions(FarQoiViewer PRIVATE
     UNICODE
     _UNICODE
@@ -32,32 +50,21 @@ target_compile_definitions(FarQoiViewer PRIVATE
     NOMINMAX
 )
 
-if(MSVC)
-    target_compile_options(FarQoiViewer PRIVATE /W4 /EHsc /permissive-)
-    target_link_options(FarQoiViewer PRIVATE
-        "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/far/FarQoiViewer.def"
-    )
-else()
-    target_compile_options(FarQoiViewer PRIVATE -Wall -Wextra -Wpedantic)
-    target_sources(FarQoiViewer PRIVATE src/FarQoiViewer.def)
-endif()
+target_compile_options(FarQoiViewer PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+)
 
-if(MINGW)
-    target_link_options(FarQoiViewer PRIVATE
-        -static
-        -static-libgcc
-        -static-libstdc++
-    )
-endif()
+target_link_options(FarQoiViewer PRIVATE
+    -static
+    -static-libgcc
+    -static-libstdc++
+)
 
 target_link_libraries(FarQoiViewer PRIVATE
     user32
     gdi32
     msimg32
-)
-
-set_target_properties(FarQoiViewer PROPERTIES
-    OUTPUT_NAME "FarQoiViewer"
-    PREFIX ""
-    SUFFIX ".dll"
+    Threads::Threads
 )
