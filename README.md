@@ -2,84 +2,104 @@
 
 [Русская версия](readme-rus.md)
 
-A Far Manager 3.x plugin that opens `.qoi` images in a native Windows window.
+A Far Manager 3.x plugin for viewing QOI images in a native Windows window.
 
-The QOI stream is decoded directly. No PNG, WIC, or GDI+ image codecs are used.
+QOI images are decoded directly by the plugin. No PNG, WIC, or GDI+ image codecs are used.
 
 ## Features
 
-* `F3` on a `.qoi` file opens the viewer
-* Non-QOI files are left to Far Manager
-* RGB and RGBA QOI supported
-* Aspect ratio preserved
-* Fit-to-window and 1:1 modes
-* Zoom and pan
-* RGBA composited over a checkerboard background
-* Independent window with its own message loop
+- Press `F3` on a `.qoi` file to open it in the viewer.
+- Supports standard QOI images with RGB and RGBA pixels.
+- Supports QOIMT images with independently encoded strips and parallel decoding.
+- Reads files and decodes images in a background thread, keeping the viewer responsive during loading.
+- Preserves the image aspect ratio.
+- Provides fit-to-window and 1:1 display modes.
+- Supports zooming and panning.
+- Composites transparent RGBA images over a checkerboard background.
+- Displays diagnostic information when a file cannot be loaded.
+- Uses a separate native Windows window with its own message loop.
+- Leaves non-QOI files to Far Manager.
 
 ## Controls
 
-| Key | Action |
-|-----|--------|
-| `0` | Fit to window |
-| `1` | 100% / 1:1 |
+| Key / Input | Action |
+|-------------|--------|
+| `0` | Fit image to window |
+| `1` | Display at 100% (1:1) |
 | `+` / `-` | Zoom in / out |
-| Mouse wheel | Zoom |
-| Arrow keys | Pan |
-| `Home` | Center image |
-| `Space` / LMB | Toggle fit ↔ zoom |
-| `Esc` | Close |
+| Mouse wheel | Zoom in / out |
+| Arrow keys | Pan the image |
+| `Home` | Center the image |
+| `Space` / Left mouse button | Toggle fit-to-window and zoom mode |
+| `Esc` | Close the viewer |
 
-Command line (Far prefix):
+## Open an image from the Far command line
 
+Use the plugin command prefix `qoi:` followed by the image path:
+
+```text
+qoi: C:\path\to\image.qoi
+qoi: "C:\path with spaces\image.qoi"
 ```
-qoi C:\path\to\image.qoi
-qoi "C:\path with spaces\image.qoi"
-```
+
+You can also select a `.qoi` file in a Far Manager panel and press `F3`.
 
 ## Build
 
-The plugin uses `far/plugin.hpp` from the Far Manager source tree (not a bundled copy).
+### Requirements
 
-```
+- Windows
+- [MSYS2 UCRT64](https://www.msys2.org/) with MinGW-w64 GCC
+- CMake 3.20 or later
+- Far Manager source code containing `far/plugin.hpp`
+
+The project uses C++17 and the Far Manager SDK header from the source tree rather than a bundled copy.
+
+Clone the Far Manager source:
+
+```bash
 git clone --depth 1 https://github.com/FarGroup/FarManager.git
 ```
 
-### MSVC
+For the build commands below, assume the Far Manager source is located at `C:/src/FarManager`. Change `FAR_SOURCE_DIR` to match your directory.
 
-```
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
-  -DFAR_SOURCE_DIR=C:/src/FarManager
+### Build with MSYS2 UCRT64
 
-cmake --build build --config Release
-```
+Run these commands from the UCRT64 terminal in the project directory:
 
-DLL: `build/Release/FarQoiViewer.dll`
-
-### MinGW (MSYS2 UCRT64)
-
-```
-cmake -S . -B build -G Ninja \
+```bash
+cmake -S . -B build -G "MSYS Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
-  -DFAR_SOURCE_DIR=/c/src/FarManager
+  -DFAR_SOURCE_DIR="C:/src/FarManager"
 
-cmake --build build -j
+cmake --build build --clean-first --parallel
 ```
 
-DLL: `build/FarQoiViewer.dll`
+The resulting DLL is:
+
+```text
+build/FarQoiViewer.dll
+```
 
 ## Install
 
-Copy the DLL to:
+Copy `FarQoiViewer.dll` into the plugin directory of your Far Manager installation, for example:
 
-```
+```text
 %FARHOME%\Plugins\FarQoiViewer\FarQoiViewer.dll
 ```
 
-Restart Far Manager.
+If `%FARHOME%` is not defined on your system, use the corresponding path inside your Far Manager installation.
+
+Restart Far Manager after installing or replacing the DLL.
 
 ## Notes
 
-* Uses `ProcessConsoleInputW` to intercept `F3` only for `.qoi` files
-* Not an archive / virtual-panel plugin — it is a viewer for the current selection
-* QOI format: [phoboslab/qoi](https://github.com/phoboslab/qoi)
+- This is a viewer plugin, not an archive or virtual-panel plugin.
+- `F3` is intercepted only for `.qoi` files; other file types remain handled by Far Manager.
+- QOIMT support is intended for files produced by a compatible QOIMT encoder using independently decodable strips.
+- QOI format: [phoboslab/qoi](https://github.com/phoboslab/qoi).
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
