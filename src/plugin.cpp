@@ -596,11 +596,11 @@ static void invalidate_image_change(HWND hwnd, const RECT &oldRect,
 */
 static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
                        const RECT &paintRect) {
-  RECT imageRect{};
+  // Всегда сначала восстанавливаем фон, в том числе под прозрачными
+  // пикселями и на месте старого положения изображения.
+  checker(dc, paintRect);
 
   if (s.loading || s.loadFailed) {
-    checker(dc, paintRect);
-
     RECT textRect{};
     GetClientRect(hwnd, &textRect);
 
@@ -612,84 +612,33 @@ static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
 
     DrawTextW(dc, text, -1, &textRect,
               DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOPREFIX);
-
     return;
   }
 
-  if (!get_image_rect(hwnd, s, imageRect)) {
-    checker(dc, paintRect);
+  RECT imageRect{};
+  if (!get_image_rect(hwnd, s, imageRect))
     return;
-  }
 
-  HRGN paintRegion = CreateRectRgnIndirect(&paintRect);
-
-  HRGN imageRegion = CreateRectRgnIndirect(&imageRect);
-
-  HRGN backgroundRegion = CreateRectRgn(0, 0, 0, 0);
-
-  HRGN imagePaintRegion = CreateRectRgn(0, 0, 0, 0);
-
-  if (!paintRegion || !imageRegion || !backgroundRegion || !imagePaintRegion) {
-    if (paintRegion)
-      DeleteObject(paintRegion);
-
-    if (imageRegion)
-      DeleteObject(imageRegion);
-
-    if (backgroundRegion)
-      DeleteObject(backgroundRegion);
-
-    if (imagePaintRegion)
-      DeleteObject(imagePaintRegion);
-
+  if (!s.dibDC || !s.dib)
     return;
-  }
 
-  /*
-     Background:
-         paintRegion - imageRegion
-  */
-  CombineRgn(backgroundRegion, paintRegion, imageRegion, RGN_DIFF);
+  const int dw = imageRect.right - imageRect.left;
+  const int dh = imageRect.bottom - imageRect.top;
 
-  /*
-     Image:
-         paintRegion ∩ imageRegion
-  */
-  CombineRgn(imagePaintRegion, paintRegion, imageRegion, RGN_AND);
+  BLENDFUNCTION bf{};
+  bf.BlendOp = AC_SRC_OVER;
+  bf.BlendFlags = 0;
+  bf.SourceConstantAlpha = 255;
+  bf.AlphaFormat = AC_SRC_ALPHA;
 
-  /*
-     1. Draw checkerboard ONLY where the current
-        image does not exist.
-  */
-  SelectClipRgn(dc, backgroundRegion);
-  checker(dc, paintRect);
+  SetStretchBltMode(dc, HALFTONE);
+  SetBrushOrgEx(dc, 0, 0, nullptr);
 
-  SelectClipRgn(dc, imagePaintRegion);
-
-  if (s.dibDC && s.dib) {
-    const int dw = imageRect.right - imageRect.left;
-    const int dh = imageRect.bottom - imageRect.top;
-
-    BLENDFUNCTION bf{};
-    bf.BlendOp = AC_SRC_OVER;
-    bf.BlendFlags = 0;
-    bf.SourceConstantAlpha = 255;
-    bf.AlphaFormat = AC_SRC_ALPHA;
-
-    SetStretchBltMode(dc, HALFTONE);
-    SetBrushOrgEx(dc, 0, 0, nullptr);
-
-    AlphaBlend(dc, imageRect.left, imageRect.top, dw, dh, s.dibDC, 0, 0,
-               static_cast<int>(s.image.width),
-               static_cast<int>(s.image.height), bf);
-  }
-
-  SelectClipRgn(dc, nullptr);
-
-  DeleteObject(paintRegion);
-  DeleteObject(imageRegion);
-  DeleteObject(backgroundRegion);
-  DeleteObject(imagePaintRegion);
+  // WM_PAINT / BeginPaint already clips the DC to the invalidated region.
+  // AlphaBlend therefore only updates the visible part of the destination.
+  AlphaBlend(dc, imageRect.left, imageRect.top, dw, dh, s.dibDC, 0, 0,
+             static_cast<int>(s.image.width),
+             static_cast<int>(s.image.height), bf);
 }
 
 static void update_title(HWND hwnd, const ViewerState &s) {
