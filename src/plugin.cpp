@@ -92,6 +92,7 @@ struct ViewerState {
   double panY = 0.0;
 
   bool fitToWindow = true;
+  BackgroundMode background = BackgroundMode::Checkers;
 
   /*
      QOI RGBA -> Windows BGRA.
@@ -479,6 +480,21 @@ static void checker(HDC dc, const RECT &r) {
   FillRect(dc, &r, brush);
 }
 
+static void draw_background(HDC dc, const RECT &r, BackgroundMode mode) {
+  switch (mode) {
+  case BackgroundMode::Black:
+    FillRect(dc, &r, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+    break;
+  case BackgroundMode::White:
+    FillRect(dc, &r, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+    break;
+  case BackgroundMode::Checkers:
+  default:
+    checker(dc, r);
+    break;
+  }
+}
+
 /*
    Calculate the exact rectangle occupied by the image.
 */
@@ -596,10 +612,8 @@ static void invalidate_image_change(HWND hwnd, const RECT &oldRect,
 */
 static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
                        const RECT &paintRect) {
-  RECT imageRect{};
-
   if (s.loading || s.loadFailed) {
-    checker(dc, paintRect);
+    draw_background(dc, paintRect, s.background);
 
     RECT textRect{};
     GetClientRect(hwnd, &textRect);
@@ -612,84 +626,113 @@ static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
 
     DrawTextW(dc, text, -1, &textRect,
               DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOPREFIX);
-
     return;
   }
 
+  RECT imageRect{};
   if (!get_image_rect(hwnd, s, imageRect)) {
-    checker(dc, paintRect);
+    draw_background(dc, paintRect, s.background);
     return;
   }
 
-  HRGN paintRegion = CreateRectRgnIndirect(&paintRect);
-
-  HRGN imageRegion = CreateRectRgnIndirect(&imageRect);
-
-  HRGN backgroundRegion = CreateRectRgn(0, 0, 0, 0);
-
-  HRGN imagePaintRegion = CreateRectRgn(0, 0, 0, 0);
-
-  if (!paintRegion || !imageRegion || !backgroundRegion || !imagePaintRegion) {
-    if (paintRegion)
-      DeleteObject(paintRegion);
-
-    if (imageRegion)
-      DeleteObject(imageRegion);
-
-    if (backgroundRegion)
-      DeleteObject(backgroundRegion);
-
-    if (imagePaintRegion)
-      DeleteObject(imagePaintRegion);
-
+  if (!s.dibDC || !s.dib) {
+    draw_background(dc, paintRect, s.background);
     return;
   }
 
-  /*
-     Background:
-         paintRegion - imageRegion
-  */
-  CombineRgn(backgroundRegion, paintRegion, imageRegion, RGN_DIFF);
+  const int dw = imageRect.right - imageRect.left;
+  const int dh = imageRect.bottom - imageRect.top;
 
-  /*
-     Image:
-         paintRegion ∩ imageRegion
-  */
-  CombineRgn(imagePaintRegion, paintRegion, imageRegion, RGN_AND);
+  BLENDFUNCTION bf{};
+  bf.BlendOp = AC_SRC_OVER;
+  bf.BlendFlags = 0;
+  bf.SourceConstantAlpha = 255;
+  bf.AlphaFormat = AC_SRC_ALPHA;
 
-  /*
-     1. Draw checkerboard ONLY where the current
-        image does not exist.
-  */
-  SelectClipRgn(dc, backgroundRegion);
-  checker(dc, paintRect);
+  SetStretchBltMode(dc, HALFTONE);
+  SetBrushOrgEx(dc, 0, 0, nullptr);
 
-  SelectClipRgn(dc, imagePaintRegion);
+  // Keep the original main-branch path for opaque RGB QOI images.
+  if (s.image.channels != 4) {
+    HRGN paintRegion = CreateRectRgnIndirect(&paintRect);
+    HRGN imageRegion = CreateRectRgnIndirect(&imageRect);
+    HRGN backgroundRegion = CreateRectRgn(0, 0, 0, 0);
+    HRGN imagePaintRegion = CreateRectRgn(0, 0, 0, 0);
 
-  if (s.dibDC && s.dib) {
-    const int dw = imageRect.right - imageRect.left;
-    const int dh = imageRect.bottom - imageRect.top;
+    if (!paintRegion || !imageRegion || !backgroundRegion ||
+        !imagePaintRegion) {
+      if (paintRegion) DeleteObject(paintRegion);
+      if (imageRegion) DeleteObject(imageRegion);
+      if (backgroundRegion) DeleteObject(backgroundRegion);
+      if (imagePaintRegion) DeleteObject(imagePaintRegion);
+      return;
+    }
 
-    BLENDFUNCTION bf{};
-    bf.BlendOp = AC_SRC_OVER;
-    bf.BlendFlags = 0;
-    bf.SourceConstantAlpha = 255;
-    bf.AlphaFormat = AC_SRC_ALPHA;
+    CombineRgn(backgroundRegion, paintRegion, imageRegion, RGN_DIFF);
+    CombineRgn(imagePaintRegion, paintRegion, imageRegion, RGN_AND);
 
-    SetStretchBltMode(dc, HALFTONE);
-    SetBrushOrgEx(dc, 0, 0, nullptr);
+    SelectClipRgn(dc, backgroundRegion);
+    draw_background(dc, paintRect, s.background);
+    SelectClipRgn(dc, imagePaintRegion);
 
     AlphaBlend(dc, imageRect.left, imageRect.top, dw, dh, s.dibDC, 0, 0,
                static_cast<int>(s.image.width),
                static_cast<int>(s.image.height), bf);
+
+    SelectClipRgn(dc, nullptr);
+    DeleteObject(paintRegion);
+    DeleteObject(imageRegion);
+    DeleteObject(backgroundRegion);
+    DeleteObject(imagePaintRegion);
+    return;
   }
 
-  SelectClipRgn(dc, nullptr);
+  // RGBA path: compose into an off-screen surface. The checkerboard and
+  // alpha blend are completed in memory, then copied to the window once.
+  // This prevents transparent pixels from blending with stale window pixels
+  // and avoids a separate erase/clear pass that could visibly flicker.
+  const int paintWidth = paintRect.right - paintRect.left;
+  const int paintHeight = paintRect.bottom - paintRect.top;
+  if (paintWidth <= 0 || paintHeight <= 0)
+    return;
 
-  DeleteObject(paintRegion);
-  DeleteObject(imageRegion);
-  DeleteObject(backgroundRegion);
-  DeleteObject(imagePaintRegion);
+  HDC memoryDC = CreateCompatibleDC(dc);
+  if (!memoryDC)
+    return;
+
+  HBITMAP memoryBitmap = CreateCompatibleBitmap(dc, paintWidth, paintHeight);
+  if (!memoryBitmap) {
+    DeleteDC(memoryDC);
+    return;
+  }
+
+  HGDIOBJ oldBitmap = SelectObject(memoryDC, memoryBitmap);
+  if (!oldBitmap || oldBitmap == HGDI_ERROR) {
+    DeleteObject(memoryBitmap);
+    DeleteDC(memoryDC);
+    return;
+  }
+
+  // Match the checker pattern's origin to the window's client coordinates.
+  SetBrushOrgEx(memoryDC, -paintRect.left, -paintRect.top, nullptr);
+  RECT memoryRect{0, 0, paintWidth, paintHeight};
+  draw_background(memoryDC, memoryRect, s.background);
+
+  SetStretchBltMode(memoryDC, HALFTONE);
+  SetBrushOrgEx(memoryDC, 0, 0, nullptr);
+
+  AlphaBlend(memoryDC, imageRect.left - paintRect.left,
+              imageRect.top - paintRect.top, dw, dh, s.dibDC, 0, 0,
+              static_cast<int>(s.image.width),
+              static_cast<int>(s.image.height), bf);
+
+  // BeginPaint clips the destination DC to the invalidated paint region.
+  BitBlt(dc, paintRect.left, paintRect.top, paintWidth, paintHeight,
+         memoryDC, 0, 0, SRCCOPY);
+
+  SelectObject(memoryDC, oldBitmap);
+  DeleteObject(memoryBitmap);
+  DeleteDC(memoryDC);
 }
 
 static void update_title(HWND hwnd, const ViewerState &s) {
@@ -936,6 +979,21 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       break;
 
     switch (wp) {
+    case 'B':
+      s->background = BackgroundMode::Black;
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+
+    case 'W':
+      s->background = BackgroundMode::White;
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+
+    case 'C':
+      s->background = BackgroundMode::Checkers;
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+
     case VK_ESCAPE:
       DestroyWindow(hwnd);
       return 0;
