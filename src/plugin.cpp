@@ -596,11 +596,9 @@ static void invalidate_image_change(HWND hwnd, const RECT &oldRect,
 */
 static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
                        const RECT &paintRect) {
-  // Всегда сначала восстанавливаем фон, в том числе под прозрачными
-  // пикселями и на месте старого положения изображения.
-  checker(dc, paintRect);
-
   if (s.loading || s.loadFailed) {
+    checker(dc, paintRect);
+
     RECT textRect{};
     GetClientRect(hwnd, &textRect);
 
@@ -616,11 +614,15 @@ static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
   }
 
   RECT imageRect{};
-  if (!get_image_rect(hwnd, s, imageRect))
+  if (!get_image_rect(hwnd, s, imageRect)) {
+    checker(dc, paintRect);
     return;
+  }
 
-  if (!s.dibDC || !s.dib)
+  if (!s.dibDC || !s.dib) {
+    checker(dc, paintRect);
     return;
+  }
 
   const int dw = imageRect.right - imageRect.left;
   const int dh = imageRect.bottom - imageRect.top;
@@ -634,11 +636,87 @@ static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
   SetStretchBltMode(dc, HALFTONE);
   SetBrushOrgEx(dc, 0, 0, nullptr);
 
-  // WM_PAINT / BeginPaint already clips the DC to the invalidated region.
-  // AlphaBlend therefore only updates the visible part of the destination.
-  AlphaBlend(dc, imageRect.left, imageRect.top, dw, dh, s.dibDC, 0, 0,
-             static_cast<int>(s.image.width),
-             static_cast<int>(s.image.height), bf);
+  // Keep the original main-branch path for opaque RGB QOI images.
+  if (s.image.channels != 4) {
+    HRGN paintRegion = CreateRectRgnIndirect(&paintRect);
+    HRGN imageRegion = CreateRectRgnIndirect(&imageRect);
+    HRGN backgroundRegion = CreateRectRgn(0, 0, 0, 0);
+    HRGN imagePaintRegion = CreateRectRgn(0, 0, 0, 0);
+
+    if (!paintRegion || !imageRegion || !backgroundRegion ||
+        !imagePaintRegion) {
+      if (paintRegion) DeleteObject(paintRegion);
+      if (imageRegion) DeleteObject(imageRegion);
+      if (backgroundRegion) DeleteObject(backgroundRegion);
+      if (imagePaintRegion) DeleteObject(imagePaintRegion);
+      return;
+    }
+
+    CombineRgn(backgroundRegion, paintRegion, imageRegion, RGN_DIFF);
+    CombineRgn(imagePaintRegion, paintRegion, imageRegion, RGN_AND);
+
+    SelectClipRgn(dc, backgroundRegion);
+    checker(dc, paintRect);
+    SelectClipRgn(dc, imagePaintRegion);
+
+    AlphaBlend(dc, imageRect.left, imageRect.top, dw, dh, s.dibDC, 0, 0,
+               static_cast<int>(s.image.width),
+               static_cast<int>(s.image.height), bf);
+
+    SelectClipRgn(dc, nullptr);
+    DeleteObject(paintRegion);
+    DeleteObject(imageRegion);
+    DeleteObject(backgroundRegion);
+    DeleteObject(imagePaintRegion);
+    return;
+  }
+
+  // RGBA path: compose into an off-screen surface. The checkerboard and
+  // alpha blend are completed in memory, then copied to the window once.
+  // This prevents transparent pixels from blending with stale window pixels
+  // and avoids a separate erase/clear pass that could visibly flicker.
+  const int paintWidth = paintRect.right - paintRect.left;
+  const int paintHeight = paintRect.bottom - paintRect.top;
+  if (paintWidth <= 0 || paintHeight <= 0)
+    return;
+
+  HDC memoryDC = CreateCompatibleDC(dc);
+  if (!memoryDC)
+    return;
+
+  HBITMAP memoryBitmap = CreateCompatibleBitmap(dc, paintWidth, paintHeight);
+  if (!memoryBitmap) {
+    DeleteDC(memoryDC);
+    return;
+  }
+
+  HGDIOBJ oldBitmap = SelectObject(memoryDC, memoryBitmap);
+  if (!oldBitmap || oldBitmap == HGDI_ERROR) {
+    DeleteObject(memoryBitmap);
+    DeleteDC(memoryDC);
+    return;
+  }
+
+  // Match the checker pattern's origin to the window's client coordinates.
+  SetBrushOrgEx(memoryDC, -paintRect.left, -paintRect.top, nullptr);
+  RECT memoryRect{0, 0, paintWidth, paintHeight};
+  checker(memoryDC, memoryRect);
+
+  SetStretchBltMode(memoryDC, HALFTONE);
+  SetBrushOrgEx(memoryDC, 0, 0, nullptr);
+
+  AlphaBlend(memoryDC, imageRect.left - paintRect.left,
+              imageRect.top - paintRect.top, dw, dh, s.dibDC, 0, 0,
+              static_cast<int>(s.image.width),
+              static_cast<int>(s.image.height), bf);
+
+  // BeginPaint clips the destination DC to the invalidated paint region.
+  BitBlt(dc, paintRect.left, paintRect.top, paintWidth, paintHeight,
+         memoryDC, 0, 0, SRCCOPY);
+
+  SelectObject(memoryDC, oldBitmap);
+  DeleteObject(memoryBitmap);
+  DeleteDC(memoryDC);
 }
 
 static void update_title(HWND hwnd, const ViewerState &s) {
