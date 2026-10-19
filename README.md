@@ -32,6 +32,9 @@ QOI images are decoded directly by the plugin. No PNG, WIC, or GDI+ image codecs
 | `Home` | Center the image |
 | `Space` / Left mouse button | Toggle fit-to-window and zoom mode |
 | `Esc` | Close the viewer |
+| `w` | Background: white |
+| `b` | Background: black |
+| `c` | Background: checkers |
 
 ## Open an image from the Far command line
 
