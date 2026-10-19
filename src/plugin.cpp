@@ -979,17 +979,17 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       break;
 
     switch (wp) {
-    case VK_B:
+    case 'B':
       s->background = BackgroundMode::Black;
       InvalidateRect(hwnd, nullptr, FALSE);
       return 0;
 
-    case VK_W:
+    case 'W':
       s->background = BackgroundMode::White;
       InvalidateRect(hwnd, nullptr, FALSE);
       return 0;
 
-    case VK_C:
+    case 'C':
       s->background = BackgroundMode::Checkers;
       InvalidateRect(hwnd, nullptr, FALSE);
       return 0;
