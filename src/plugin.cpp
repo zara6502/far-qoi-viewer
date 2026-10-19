@@ -92,6 +92,7 @@ struct ViewerState {
   double panY = 0.0;
 
   bool fitToWindow = true;
+  BackgroundMode background = BackgroundMode::Checkers;
 
   /*
      QOI RGBA -> Windows BGRA.
@@ -479,6 +480,21 @@ static void checker(HDC dc, const RECT &r) {
   FillRect(dc, &r, brush);
 }
 
+static void draw_background(HDC dc, const RECT &r, BackgroundMode mode) {
+  switch (mode) {
+  case BackgroundMode::Black:
+    FillRect(dc, &r, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+    break;
+  case BackgroundMode::White:
+    FillRect(dc, &r, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+    break;
+  case BackgroundMode::Checkers:
+  default:
+    checker(dc, r);
+    break;
+  }
+}
+
 /*
    Calculate the exact rectangle occupied by the image.
 */
@@ -597,7 +613,7 @@ static void invalidate_image_change(HWND hwnd, const RECT &oldRect,
 static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
                        const RECT &paintRect) {
   if (s.loading || s.loadFailed) {
-    checker(dc, paintRect);
+    draw_background(dc, paintRect, s.background);
 
     RECT textRect{};
     GetClientRect(hwnd, &textRect);
@@ -615,12 +631,12 @@ static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
 
   RECT imageRect{};
   if (!get_image_rect(hwnd, s, imageRect)) {
-    checker(dc, paintRect);
+    draw_background(dc, paintRect, s.background);
     return;
   }
 
   if (!s.dibDC || !s.dib) {
-    checker(dc, paintRect);
+    draw_background(dc, paintRect, s.background);
     return;
   }
 
@@ -656,7 +672,7 @@ static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
     CombineRgn(imagePaintRegion, paintRegion, imageRegion, RGN_AND);
 
     SelectClipRgn(dc, backgroundRegion);
-    checker(dc, paintRect);
+    draw_background(dc, paintRect, s.background);
     SelectClipRgn(dc, imagePaintRegion);
 
     AlphaBlend(dc, imageRect.left, imageRect.top, dw, dh, s.dibDC, 0, 0,
@@ -700,7 +716,7 @@ static void draw_image(HWND hwnd, HDC dc, ViewerState &s,
   // Match the checker pattern's origin to the window's client coordinates.
   SetBrushOrgEx(memoryDC, -paintRect.left, -paintRect.top, nullptr);
   RECT memoryRect{0, 0, paintWidth, paintHeight};
-  checker(memoryDC, memoryRect);
+  draw_background(memoryDC, memoryRect, s.background);
 
   SetStretchBltMode(memoryDC, HALFTONE);
   SetBrushOrgEx(memoryDC, 0, 0, nullptr);
@@ -963,6 +979,21 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       break;
 
     switch (wp) {
+    case VK_B:
+      s->background = BackgroundMode::Black;
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+
+    case VK_W:
+      s->background = BackgroundMode::White;
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+
+    case VK_C:
+      s->background = BackgroundMode::Checkers;
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+
     case VK_ESCAPE:
       DestroyWindow(hwnd);
       return 0;
